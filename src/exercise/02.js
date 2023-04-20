@@ -10,6 +10,25 @@ import {
   PokemonErrorBoundary,
 } from '../pokemon'
 
+// we can use a custom hook to reuse safe dispatch methods
+function useSafeDispatch(dispatch) {
+  const mountedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    } 
+  }, [])
+
+  return React.useCallback((...arg) => {
+    if (mountedRef.current) {
+      dispatch(...arg)
+    }
+  }, [dispatch]) // react can not track our initial dispatch function, we need to add it in the dependencies array
+}
+
 function asyncReducer(state, action) {
   switch (action.type) {
     case 'pending': {
@@ -28,20 +47,36 @@ function asyncReducer(state, action) {
 }
 
 function useAsync(initialState) {
-  console.log('initial state', initialState)
-  const [state, dispatch] = React.useReducer(asyncReducer, initialState)
+  const [state, unsafeDispatch] = React.useReducer(asyncReducer, initialState);
+  const mountedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    } 
+  }, [])
+
+  const dispatch = React.useCallback((...arg) => {
+    if (mountedRef.current) {
+      unsafeDispatch(...arg)
+    }
+  }, []) // empty because useReducer dispatch function is stable
     
   const run = React.useCallback((promise) => {
     dispatch({type: 'pending'})
     promise.then(
       data => {
+        console.log('data', data)
         dispatch({type: 'resolved', data})
       },
       error => {
         dispatch({type: 'rejected', error})
       },
     )
-  }, []) // we don't need to pass dispatch in dependencies array because it's never change
+  }, [dispatch])
+  // usually we don't need to pass dispatch in dependencies array because it's never change, dispatch is stable, but in this case we are using the memoized version and not true dispatch function, so React doesn't understand
 
   return  {...state, run}
 
@@ -49,6 +84,7 @@ function useAsync(initialState) {
 
 function PokemonInfo({pokemonName}) {
   const {data: pokemon, status, error, run} = useAsync({ status: pokemonName ? 'pending' : 'idle', data: null, error: null})
+  console.log(status, pokemon)
 
   React.useEffect(() => {
     if (!pokemonName) {
